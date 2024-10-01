@@ -1,31 +1,63 @@
 import requests
 from bs4 import BeautifulSoup
+import re
 
-# URL de base du site
-base_url = 'http://quotes.toscrape.com/page/'
+# URL de la page principale
+BASE_URL = "https://books.toscrape.com/"
 
-def get_total_pages():
-    # Commence par la première page
-    page_num = 1
-    while True:
-        url = f"{base_url}{page_num}/"
-        response = requests.get(url)
-        
-        # Si on arrive sur une page qui n'existe pas, on s'arrête
-        if response.status_code != 200:
-            break
-        
-        # Analyse la page avec BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Cherche l'élément indiquant que la page est vide (si nécessaire)
-        if not soup.find_all("div", class_="quote"):
-            break
+# Fonction pour obtenir le contenu HTML d'une page
+def get_soup(url):
+    response = requests.get(url)
+    return BeautifulSoup(response.text, 'html.parser')
 
-        page_num += 1
+# Fonction pour extraire toutes les catégories de livres
+def get_categories(soup):
+    categories = {}
+    category_list = soup.find('ul', class_='nav-list').find('ul').find_all('li')
     
-    # Le numéro de page en cours est la première page inexistante, donc on retourne page_num - 1
-    return page_num - 1
+    for category in category_list:
+        category_name = category.get_text(strip=True)
+        category_url = BASE_URL + category.find('a')['href']
+        categories[category_name] = category_url
+    
+    return categories
 
-total_pages = get_total_pages()
-print(f"Nombre total de pages : {total_pages}")
+# Fonction pour récupérer le nombre de livres et le prix moyen d'une catégorie
+def get_books_info(category_url):
+    soup = get_soup(category_url)
+    books = soup.find_all('article', class_='product_pod')
+    
+    total_price = 0
+    book_count = 0
+
+    while True:
+        for book in books:
+            price = book.find('p', class_='price_color').get_text()
+            price = float(re.sub(r'[^0-9.]', '', price))  # Suppression des symboles pour ne garder que le prix
+            total_price += price
+            book_count += 1
+
+        # Passer à la page suivante si elle existe
+        next_button = soup.find('li', class_='next')
+        if next_button:
+            next_url = category_url.rsplit('/', 1)[0] + '/' + next_button.find('a')['href']
+            soup = get_soup(next_url)
+            books = soup.find_all('article', class_='product_pod')
+        else:
+            break
+
+    # Calcul du prix moyen
+    average_price = total_price / book_count if book_count > 0 else 0
+    return book_count, average_price
+
+# Scraping des catégories et des infos
+def scrape_books():
+    main_soup = get_soup(BASE_URL)
+    categories = get_categories(main_soup)
+
+    for category, url in categories.items():
+        book_count, average_price = get_books_info(url)
+        print(f"Catégorie: {category} - Nombre de livres: {book_count} - Prix moyen: £{average_price:.2f}")
+
+# Exécution du script
+scrape_books()
